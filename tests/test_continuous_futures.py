@@ -15,7 +15,14 @@
 
 from textwrap import dedent
 
-from numpy import array, int64
+from numpy import (
+    arange,
+    array,
+    int64,
+    full,
+    repeat,
+)
+from numpy.testing import assert_almost_equal
 import pandas as pd
 from pandas import Timestamp, DataFrame
 
@@ -23,6 +30,7 @@ from zipline import TradingAlgorithm
 from zipline.assets.continuous_futures import OrderedContracts
 from zipline.testing.fixtures import (
     WithCreateBarData,
+    WithBcolzFutureMinuteBarReader,
     WithSimParams,
     ZiplineTestCase,
 )
@@ -30,6 +38,7 @@ from zipline.testing.fixtures import (
 
 class ContinuousFuturesTestCase(WithCreateBarData,
                                 WithSimParams,
+                                WithBcolzFutureMinuteBarReader,
                                 ZiplineTestCase):
 
     START_DATE = pd.Timestamp('2015-01-05', tz='UTC')
@@ -66,23 +75,51 @@ class ContinuousFuturesTestCase(WithCreateBarData,
                          Timestamp('2022-08-19', tz='UTC')],
             'notice_date': [Timestamp('2016-01-26', tz='UTC'),
                             Timestamp('2016-02-26', tz='UTC'),
-                            Timestamp('2016-03-26', tz='UTC'),
+                            Timestamp('2016-03-24', tz='UTC'),
                             Timestamp('2016-04-26', tz='UTC'),
                             Timestamp('2022-01-26', tz='UTC')],
             'expiration_date': [Timestamp('2016-01-26', tz='UTC'),
                                 Timestamp('2016-02-26', tz='UTC'),
-                                Timestamp('2016-03-26', tz='UTC'),
+                                Timestamp('2016-03-24', tz='UTC'),
                                 Timestamp('2016-04-26', tz='UTC'),
                                 Timestamp('2022-01-26', tz='UTC')],
             'auto_close_date': [Timestamp('2016-01-26', tz='UTC'),
                                 Timestamp('2016-02-26', tz='UTC'),
-                                Timestamp('2016-03-26', tz='UTC'),
+                                Timestamp('2016-03-24', tz='UTC'),
                                 Timestamp('2016-04-26', tz='UTC'),
                                 Timestamp('2022-01-26', tz='UTC')],
             'tick_size': [0.001] * 5,
             'multiplier': [1000.0] * 5,
             'exchange': ['CME'] * 5,
         })
+
+    @classmethod
+    def make_future_minute_bar_data(cls):
+        trading_calendar = cls.trading_calendar
+        # No data on first day, future asset intentionally not on the same
+        # dates as equities, so that cross-wiring of results do not create a
+        # false positive.
+        start = pd.Timestamp('2016-01-26', tz='UTC')
+        end = pd.Timestamp('2016-04-29', tz='UTC')
+        dts = trading_calendar.minutes_for_sessions_in_range(start, end)
+        sessions = trading_calendar.sessions_in_range(start, end)
+        markers = repeat(
+            arange(0.001, 0.001 * (len(sessions) + 1), 0.001),
+            60 * 24)
+        vol_markers = repeat(
+            arange(1, (len(sessions) + 1), 1, dtype=int64),
+            60 * 24)
+        base_df = pd.DataFrame(
+            {
+                'open': full(len(dts), 100.2) + markers,
+                'high': full(len(dts), 100.9) + markers,
+                'low': full(len(dts), 100.1) + markers,
+                'close': full(len(dts), 100.5) + markers,
+                'volume': full(len(dts), 1000) + vol_markers,
+            },
+            index=dts)
+        for i in range(5):
+            yield i, base_df + i
 
     def test_create_continuous_future(self):
         cf_primary = self.asset_finder.create_continuous_future(
@@ -286,6 +323,98 @@ def record_current_contract(algo, data):
                          'FOJ16',
                          'End of secondary chain should be FOJ16 on second '
                          'session.')
+
+    def test_history_sid(self):
+        cf = self.data_portal.asset_finder.create_continuous_future(
+            'FO', 0, 'calendar')
+        window = self.data_portal.get_history_window(
+            [cf.sid], Timestamp('2016-03-06', tz='UTC'), 30, '1d', 'sid')
+
+        self.assertEqual(window.loc['2016-01-26', cf],
+                         0,
+                         "Should be FOF16 at beginning of window.")
+
+        self.assertEqual(window.loc['2016-02-26', cf],
+                         0,
+                         "Should be FOF16 on session with roll.")
+
+        self.assertEqual(window.loc['2016-02-29', cf],
+                         1,
+                         "Should be FOG16 on session after roll.")
+
+        # Advance the window a month.
+        window = self.data_portal.get_history_window(
+            [cf.sid], Timestamp('2016-04-06', tz='UTC'), 30, '1d', 'sid')
+
+        self.assertEqual(window.loc['2016-02-24', cf],
+                         0,
+                         "Should be FOF16 at beginning of window.")
+
+        self.assertEqual(window.loc['2016-02-26', cf],
+                         0,
+                         "Should be FOF16 on session with upcoming roll.")
+
+        self.assertEqual(window.loc['2016-02-29', cf],
+                         1,
+                         "Should be FOG16 on session after roll.")
+
+        self.assertEqual(window.loc['2016-03-24', cf],
+                         1,
+                         "Should be FOG16 on session with upcoming roll.")
+
+        self.assertEqual(window.loc['2016-03-28', cf],
+                         2,
+                         "Should be FOH16 on session after roll.")
+
+    def test_history_close(self):
+        cf = self.data_portal.asset_finder.create_continuous_future(
+            'FO', 0, 'calendar')
+        window = self.data_portal.get_history_window(
+            [cf.sid], Timestamp('2016-03-06', tz='UTC'), 30, '1d', 'close')
+
+        assert_almost_equal(
+            window.loc['2016-01-26', cf],
+            100.501,
+            err_msg="At beginning of window, should be FOF16's first value.")
+
+        assert_almost_equal(
+            window.loc['2016-02-26', cf],
+            100.524,
+            err_msg="On session with roll, should be FOF16's 24th value.")
+
+        assert_almost_equal(
+            window.loc['2016-02-29', cf],
+            101.525,
+            err_msg="After roll, Should be FOG16's 25th value.")
+
+        # Advance the window a month.
+        window = self.data_portal.get_history_window(
+            [cf.sid], Timestamp('2016-04-06', tz='UTC'), 30, '1d', 'close')
+
+        assert_almost_equal(
+            window.loc['2016-02-24', cf],
+            100.522,
+            err_msg="At beginning of window, should be FOF16's 22nd value.")
+
+        assert_almost_equal(
+            window.loc['2016-02-26', cf],
+            100.524,
+            err_msg="On session with roll, should be FOF16's 24th value.")
+
+        assert_almost_equal(
+            window.loc['2016-02-29', cf],
+            101.525,
+            err_msg="On session after roll, should be FOG16's 25th value.")
+
+        assert_almost_equal(
+            window.loc['2016-03-24', cf],
+            101.543,
+            err_msg="On session with roll, should be FOG16's 43rd value.")
+
+        assert_almost_equal(
+            window.loc['2016-03-28', cf],
+            102.544,
+            err_msg="On session after roll, Should be FOH16's 44th value.")
 
 
 class OrderedContractsTestCase(ZiplineTestCase):
