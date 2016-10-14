@@ -337,9 +337,13 @@ def record_current_contract(algo, data):
                          0,
                          "Should be FOF16 at beginning of window.")
 
-        self.assertEqual(window.loc['2016-02-26', cf],
+        self.assertEqual(window.loc['2016-02-25', cf],
                          0,
-                         "Should be FOF16 on session with roll.")
+                         "Should be FOF16 on session before roll.")
+
+        self.assertEqual(window.loc['2016-02-26', cf],
+                         1,
+                         "Should be FOG16 on session with roll.")
 
         self.assertEqual(window.loc['2016-02-29', cf],
                          1,
@@ -356,16 +360,20 @@ def record_current_contract(algo, data):
                          "Should be FOF16 at beginning of window.")
 
         self.assertEqual(window.loc['2016-02-26', cf],
-                         0,
-                         "Should be FOF16 on session with upcoming roll.")
+                         1,
+                         "Should be FOF16 on session before roll.")
+
+        self.assertEqual(window.loc['2016-02-26', cf],
+                         1,
+                         "Should be FOG16 on session with roll.")
 
         self.assertEqual(window.loc['2016-02-29', cf],
                          1,
                          "Should be FOG16 on session after roll.")
 
         self.assertEqual(window.loc['2016-03-24', cf],
-                         1,
-                         "Should be FOG16 on session with upcoming roll.")
+                         2,
+                         "Should be FOH16 on session with roll.")
 
         self.assertEqual(window.loc['2016-03-28', cf],
                          2,

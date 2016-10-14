@@ -39,8 +39,8 @@ class ContinuousFutureSessionBarReader(SessionBarReader):
 
         results = []
 
-        sessions = self._bar_reader.trading_calendar.sessions_in_range(
-            start_date, end_date)
+        tc = self._bar_reader.trading_calendar
+        sessions = tc.sessions_in_range(start_date, end_date)
 
         # Get partitions
         partitions_by_asset = {}
@@ -52,9 +52,10 @@ class ContinuousFutureSessionBarReader(SessionBarReader):
             rolls = rolls_by_asset[asset]
             start = start_date
             for roll in rolls:
-                sid, end = roll
+                sid, roll_date = roll
                 start_loc = sessions.get_loc(start)
-                if end is not None:
+                if roll_date is not None:
+                    end = roll_date - sessions.freq
                     end_loc = sessions.get_loc(end)
                 else:
                     end = end_date
