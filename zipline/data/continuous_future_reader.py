@@ -201,17 +201,18 @@ class ContinuousFutureMinuteBarReader(SessionBarReader):
         """
         rolls_by_asset = {}
         for asset in assets:
-            rf = self._roll_finders[asset.roll]
+            rf = self._roll_finders[asset.roll_style]
             rolls_by_asset[asset] = rf.get_rolls(
                 asset.root_symbol, start_date, end_date, asset.offset)
-        num_sessions = len(
-            self.trading_calendar.sessions_in_range(start_date, end_date))
-        shape = num_sessions, len(assets)
+
+        tc = self.trading_calendar
+        sessions = tc.sessions_in_range(start_date, end_date)
+
+        minutes = tc.minutes_in_range(start_date, end_date)
+        num_minutes = len(minutes)
+        shape = num_minutes, len(assets)
 
         results = []
-
-        sessions = self._bar_reader.trading_calendar.sessions_in_range(
-            start_date, end_date)
 
         # Get partitions
         partitions_by_asset = {}
@@ -224,12 +225,13 @@ class ContinuousFutureMinuteBarReader(SessionBarReader):
             start = start_date
             for roll in rolls:
                 sid, end = roll
-                start_loc = sessions.searchsorted(start)
+                start_loc = minutes.searchsorted(start)
                 if end is not None:
-                    end_loc = sessions.searchsorted(end)
+                    _, end_minute = tc.open_and_close_for_session(end)
+                    end_loc = minutes.searchsorted(end_minute)
                 else:
                     end = end_date
-                    end_loc = len(sessions) - 1
+                    end_loc = len(minutes) - 1
                 partitions.append((sid, start, end, start_loc, end_loc))
                 if roll[-1] is not None:
                     start = sessions[end_loc + 1]
