@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from textwrap import dedent
+from unittest import skip
 
 from numpy import (
     arange,
@@ -115,7 +116,7 @@ class ContinuousFuturesTestCase(WithCreateBarData,
                 'high': full(len(dts), 100.9) + markers,
                 'low': full(len(dts), 100.1) + markers,
                 'close': full(len(dts), 100.5) + markers,
-                'volume': full(len(dts), 1000) + vol_markers,
+                'volume': full(len(dts), 1000, dtype=int64) + vol_markers,
             },
             index=dts)
         for i in range(5):
@@ -324,11 +325,13 @@ def record_current_contract(algo, data):
                          'End of secondary chain should be FOJ16 on second '
                          'session.')
 
-    def test_history_sid(self):
+    def test_history_sid_session(self):
         cf = self.data_portal.asset_finder.create_continuous_future(
             'FO', 0, 'calendar')
         window = self.data_portal.get_history_window(
-            [cf.sid], Timestamp('2016-03-06', tz='UTC'), 30, '1d', 'sid')
+            [cf],
+            Timestamp('2016-03-06 6:01', tz='US/Eastern').tz_convert('UTC'),
+            30, '1d', 'sid')
 
         self.assertEqual(window.loc['2016-01-26', cf],
                          0,
@@ -344,7 +347,9 @@ def record_current_contract(algo, data):
 
         # Advance the window a month.
         window = self.data_portal.get_history_window(
-            [cf.sid], Timestamp('2016-04-06', tz='UTC'), 30, '1d', 'sid')
+            [cf],
+            Timestamp('2016-04-06 6:01', tz='US/Eastern').tz_convert('UTC'),
+            30, '1d', 'sid')
 
         self.assertEqual(window.loc['2016-02-24', cf],
                          0,
@@ -366,7 +371,56 @@ def record_current_contract(algo, data):
                          2,
                          "Should be FOH16 on session after roll.")
 
-    def test_history_close(self):
+    @skip
+    def test_history_sid_minute(self):
+        cf = self.data_portal.asset_finder.create_continuous_future(
+            'FO', 0, 'calendar')
+        window = self.data_portal.get_history_window(
+            [cf.sid],
+            Timestamp('2016-01-26 6:01', tz='US/Eastern').tz_convert('UTC'),
+            30, '1m', 'sid')
+
+        import nose; nose.tools.set_trace()
+
+        self.assertEqual(window.loc['2016-01-26', cf],
+                         0,
+                         "Should be FOF16 at beginning of window.")
+
+        self.assertEqual(window.loc['2016-02-26', cf],
+                         0,
+                         "Should be FOF16 on session with roll.")
+
+        self.assertEqual(window.loc['2016-02-29', cf],
+                         1,
+                         "Should be FOG16 on session after roll.")
+
+        # Advance the window a month.
+        window = self.data_portal.get_history_window(
+            [cf],
+            Timestamp('2016-04-06 6:01', tz='US/Eastern').tz_convert('UTC'),
+            30, '1me', 'sid')
+
+        self.assertEqual(window.loc['2016-02-24', cf],
+                         0,
+                         "Should be FOF16 at beginning of window.")
+
+        self.assertEqual(window.loc['2016-02-26', cf],
+                         0,
+                         "Should be FOF16 on session with upcoming roll.")
+
+        self.assertEqual(window.loc['2016-02-29', cf],
+                         1,
+                         "Should be FOG16 on session after roll.")
+
+        self.assertEqual(window.loc['2016-03-24', cf],
+                         1,
+                         "Should be FOG16 on session with upcoming roll.")
+
+        self.assertEqual(window.loc['2016-03-28', cf],
+                         2,
+                         "Should be FOH16 on session after roll.")
+
+    def test_history_close_session(self):
         cf = self.data_portal.asset_finder.create_continuous_future(
             'FO', 0, 'calendar')
         window = self.data_portal.get_history_window(
